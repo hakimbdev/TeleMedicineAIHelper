@@ -116,6 +116,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     await updateSupabaseProfile(data);
   };
 
+  // Debug logging for authentication state
+  console.log('useAuth state:', {
+    user: !!user,
+    isAuthenticated: !!user,
+    loading,
+    error,
+    userRole: user?.role
+  });
+
   return (
     <AuthContext.Provider value={{
       user,

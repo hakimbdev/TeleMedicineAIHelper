@@ -13,6 +13,9 @@ import DoctorStats from './components/DoctorStats';
 import PatientsList from './components/PatientsList';
 import AppointmentCalendar from './components/AppointmentCalendar';
 import AdminStats from './components/AdminStats';
+import AuthStatus from '../../components/auth/AuthStatus';
+import OptionalEmailVerificationBanner from '../../components/auth/OptionalEmailVerificationBanner';
+import { useSupabaseAuth } from '../../hooks/useSupabaseAuth';
 
 // Mock data
 const mockAppointments: Appointment[] = [
@@ -69,8 +72,10 @@ const mockNotifications: Notification[] = [
 
 const Dashboard = () => {
   const { user } = useAuth();
+  const { user: supabaseUser } = useSupabaseAuth();
   const [upcomingAppointments, setUpcomingAppointments] = useState<Appointment[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showEmailBanner, setShowEmailBanner] = useState(true);
   
   useEffect(() => {
     // Simulate API calls to fetch data
@@ -87,6 +92,19 @@ const Dashboard = () => {
         <p className="text-gray-600 mt-1">
           Here's an overview of your healthcare dashboard
         </p>
+      </div>
+
+      {/* Optional Email Verification Banner */}
+      {showEmailBanner && supabaseUser && !supabaseUser.email_confirmed_at && (
+        <OptionalEmailVerificationBanner
+          userEmail={supabaseUser.email || ''}
+          onDismiss={() => setShowEmailBanner(false)}
+        />
+      )}
+
+      {/* Authentication Status - For Testing */}
+      <div className="mb-6">
+        <AuthStatus />
       </div>
 
       {user?.role === 'patient' && (

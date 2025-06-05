@@ -45,7 +45,7 @@ function App() {
         <Route path="auth/reset-password" element={<PasswordResetPage />} />
         
         {/* Protected Routes */}
-        <Route element={<ProtectedRoute isAuthenticated={isAuthenticated} />}>
+        <Route element={<ProtectedRoute isAuthenticated={isAuthenticated} loading={loading} />}>
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="appointments" element={<AppointmentsPage />} />
           <Route path="consultation/:id" element={<ConsultationPage />} />

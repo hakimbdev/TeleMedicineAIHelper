@@ -164,21 +164,31 @@ export const useSupabaseAuth = () => {
     };
   }, [fetchProfile]);
 
-  // Sign up
-  const signUp = useCallback(async (data: SignUpData): Promise<{ success: boolean; needsConfirmation: boolean; message: string }> => {
+  // Sign up with optional email verification (disabled by default for easy access)
+  const signUp = useCallback(async (data: SignUpData & { requireEmailConfirmation?: boolean }): Promise<{ success: boolean; needsConfirmation: boolean; message: string }> => {
     try {
       setAuthState(prev => ({ ...prev, loading: true, error: null }));
+
+      // Email verification is now OPTIONAL by default for easy access
+      // Only require email confirmation if explicitly requested
+      const requireConfirmation = data.requireEmailConfirmation === true;
+
+      const signUpOptions: any = {
+        data: {
+          full_name: data.fullName,
+          role: data.role,
+        },
+      };
+
+      // Only add email redirect if confirmation is explicitly required
+      if (requireConfirmation) {
+        signUpOptions.emailRedirectTo = `${window.location.origin}/auth/verify`;
+      }
 
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: data.email,
         password: data.password,
-        options: {
-          data: {
-            full_name: data.fullName,
-            role: data.role,
-          },
-          emailRedirectTo: `${window.location.origin}/auth/verify`,
-        },
+        options: signUpOptions,
       });
 
       if (authError) {
@@ -212,19 +222,30 @@ export const useSupabaseAuth = () => {
 
         setAuthState(prev => ({ ...prev, loading: false }));
 
-        // Check if email confirmation is required
-        if (!authData.session && authData.user && !authData.user.email_confirmed_at) {
-          return {
-            success: true,
-            needsConfirmation: true,
-            message: 'Registration successful! Please check your email to confirm your account before signing in.',
-          };
-        } else {
+        // Check if we have a session (user is automatically signed in)
+        if (authData.session) {
           return {
             success: true,
             needsConfirmation: false,
-            message: 'Registration successful! You can now sign in.',
+            message: 'Registration successful! You are now signed in and can access the dashboard.',
           };
+        }
+
+        // With optional email verification, users can always sign in
+        if (authData.user) {
+          if (requireConfirmation && !authData.user.email_confirmed_at) {
+            return {
+              success: true,
+              needsConfirmation: true,
+              message: 'Registration successful! Please check your email to verify your account, or you can sign in immediately.',
+            };
+          } else {
+            return {
+              success: true,
+              needsConfirmation: false,
+              message: 'Registration successful! You can now sign in and access the dashboard.',
+            };
+          }
         }
       }
 
@@ -242,12 +263,14 @@ export const useSupabaseAuth = () => {
       }));
 
       let message = 'Registration failed. Please try again.';
-      if (error.message?.includes('already registered')) {
+      if (error.message?.includes('already registered') || error.message?.includes('User already registered')) {
         message = 'This email is already registered. Please try signing in instead.';
       } else if (error.message?.includes('invalid email')) {
         message = 'Please enter a valid email address.';
       } else if (error.message?.includes('password')) {
         message = 'Password must be at least 6 characters long.';
+      } else if (error.message?.includes('email')) {
+        message = 'Email verification is having issues. You can still try signing in with your credentials.';
       }
 
       return {
@@ -258,40 +281,113 @@ export const useSupabaseAuth = () => {
     }
   }, []);
 
-  // Sign in
+  // Sign in with enhanced error handling and debugging
   const signIn = useCallback(async (data: SignInData): Promise<{ success: boolean; message: string }> => {
     try {
       setAuthState(prev => ({ ...prev, loading: true, error: null }));
+
+      console.log('Attempting sign in with:', { email: data.email, passwordLength: data.password.length });
 
       const { data: authData, error } = await supabase.auth.signInWithPassword({
         email: data.email,
         password: data.password,
       });
 
+      console.log('Sign in response:', { authData, error });
+
       if (error) {
-        throw error;
+        console.error('Sign in error:', error);
+
+        // Handle different types of authentication errors
+        if (error.message?.includes('Invalid login credentials')) {
+          setAuthState(prev => ({ ...prev, loading: false }));
+          return {
+            success: false,
+            message: 'Invalid email or password. Please check your credentials and try again.',
+          };
+        }
+
+        if (error.message?.includes('Email not confirmed') || error.message?.includes('email_not_confirmed')) {
+          setAuthState(prev => ({ ...prev, loading: false }));
+          return {
+            success: false,
+            message: 'Your account exists but email verification is pending. Please check your email or try creating a new account.',
+          };
+        }
+
+        if (error.message?.includes('Too many requests')) {
+          setAuthState(prev => ({ ...prev, loading: false }));
+          return {
+            success: false,
+            message: 'Too many sign in attempts. Please wait a moment and try again.',
+          };
+        }
+
+        // Generic error handling
+        setAuthState(prev => ({ ...prev, loading: false }));
+        return {
+          success: false,
+          message: `Sign in failed: ${error.message}. Please try again or contact support.`,
+        };
       }
 
       if (authData.user && authData.session) {
-        // Check if profile exists, create if it doesn't
-        const profile = await fetchProfile(authData.user.id);
-        if (!profile) {
-          // Create profile if it doesn't exist
-          const profileData: Database['public']['Tables']['profiles']['Insert'] = {
-            id: authData.user.id,
-            email: authData.user.email || data.email,
-            full_name: authData.user.user_metadata?.full_name || 'User',
-            role: authData.user.user_metadata?.role || 'patient',
-            is_active: true,
-          };
+        console.log('Sign in successful, user:', authData.user);
 
-          await supabase.from(TABLES.PROFILES).insert(profileData);
+        // Check if profile exists, create if it doesn't
+        try {
+          const profile = await fetchProfile(authData.user.id);
+          if (!profile) {
+            console.log('Creating profile for user:', authData.user.id);
+            // Create profile if it doesn't exist
+            const profileData: Database['public']['Tables']['profiles']['Insert'] = {
+              id: authData.user.id,
+              email: authData.user.email || data.email,
+              full_name: authData.user.user_metadata?.full_name || 'User',
+              role: authData.user.user_metadata?.role || 'patient',
+              is_active: true,
+            };
+
+            const { error: profileError } = await supabase.from(TABLES.PROFILES).insert(profileData);
+            if (profileError) {
+              console.error('Profile creation error:', profileError);
+            } else {
+              console.log('Profile created successfully');
+            }
+          } else {
+            console.log('Profile exists:', profile);
+          }
+        } catch (profileError) {
+          console.error('Profile check/creation error:', profileError);
+          // Continue anyway, profile issues shouldn't block login
         }
 
-        setAuthState(prev => ({ ...prev, loading: false }));
+        // Update authentication state with user and session
+        setAuthState(prev => ({
+          ...prev,
+          user: authData.user,
+          session: authData.session,
+          loading: false,
+        }));
+
+        console.log('Authentication state updated:', {
+          user: authData.user,
+          session: !!authData.session,
+          isAuthenticated: !!authData.user
+        });
+
+        // Force a re-check of the session to ensure state is properly updated
+        setTimeout(async () => {
+          const { data: { session: currentSession } } = await supabase.auth.getSession();
+          if (currentSession?.user) {
+            console.log('Session verified after sign in:', !!currentSession);
+          }
+        }, 100);
+
+        // Email verification is optional - users can always access the dashboard
         return {
           success: true,
-          message: 'Successfully signed in!',
+          message: 'Successfully signed in! Welcome to your dashboard.',
         };
       }
 
@@ -310,10 +406,12 @@ export const useSupabaseAuth = () => {
       let message = 'Sign in failed. Please check your credentials.';
       if (error.message?.includes('Invalid login credentials')) {
         message = 'Invalid email or password. Please try again.';
-      } else if (error.message?.includes('Email not confirmed')) {
-        message = 'Please confirm your email address before signing in.';
+      } else if (error.message?.includes('Email not confirmed') || error.message?.includes('email_not_confirmed')) {
+        message = 'Email verification required. Please check your email or contact support if you didn\'t receive the verification email.';
       } else if (error.message?.includes('Too many requests')) {
         message = 'Too many sign in attempts. Please wait a moment and try again.';
+      } else if (error.message?.includes('email')) {
+        message = 'Email verification issues detected. Please try again or contact support.';
       }
 
       return {
@@ -444,6 +542,33 @@ export const useSupabaseAuth = () => {
     }
   }, [authState.user, updateProfile]);
 
+  // Resend verification email
+  const resendVerificationEmail = useCallback(async (email: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/verify`,
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      return {
+        success: true,
+        message: 'Verification email sent! Please check your inbox and spam folder.',
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.message || 'Failed to send verification email. Please try again later.',
+      };
+    }
+  }, []);
+
   // Clear error
   const clearError = useCallback(() => {
     setAuthState(prev => ({ ...prev, error: null }));
@@ -467,6 +592,7 @@ export const useSupabaseAuth = () => {
     resetPassword,
     updatePassword,
     uploadAvatar,
+    resendVerificationEmail,
     clearError,
   };
 };

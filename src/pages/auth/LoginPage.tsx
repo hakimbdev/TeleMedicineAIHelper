@@ -1,9 +1,11 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, AlertCircle, CheckCircle, Mail, Lock } from 'lucide-react';
-import { useAuth } from '../../hooks/useAuth';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
 import { useSupabaseAuth } from '../../hooks/useSupabaseAuth';
-import { supabase } from '../../config/supabase';
+import { useAuthRedirect } from '../../hooks/useAuthRedirect';
+import { supabase, UserRole } from '../../config/supabase';
+import DevelopmentAuthHelper from '../../components/auth/DevelopmentAuthHelper';
+import QuickAccountCreator from '../../components/auth/QuickAccountCreator';
 
 const LoginPage = () => {
   const [email, setEmail] = useState('');
@@ -12,10 +14,29 @@ const LoginPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-
-  const { login } = useAuth();
-  const { signIn } = useSupabaseAuth();
+  const [showQuickCreator, setShowQuickCreator] = useState(false);
+  const { signIn, signUp } = useSupabaseAuth();
+  const { shouldShowAuthPages } = useAuthRedirect();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Check for registration success message
+  useEffect(() => {
+    const state = location.state as any;
+    if (state?.message) {
+      setSuccess(state.message);
+      if (state.email) {
+        setEmail(state.email);
+      }
+      // Clear the state to prevent showing message on refresh
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, navigate, location.pathname]);
+
+  // Don't render if user should be redirected
+  if (!shouldShowAuthPages) {
+    return null;
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,19 +45,30 @@ const LoginPage = () => {
     setIsLoading(true);
 
     try {
+      console.log('Login attempt with:', { email, passwordLength: password.length });
+
       // Use Supabase auth directly for better error messages
       const result = await signIn({ email, password });
+      console.log('Login result:', result);
+
       if (result.success) {
         setSuccess(result.message);
-        setTimeout(() => {
-          navigate('/dashboard');
-        }, 1000);
+        console.log('Login successful, navigating to dashboard...');
+
+        // Immediate navigation to dashboard
+        navigate('/dashboard', { replace: true });
       } else {
         setError(result.message);
+
+        // If login fails with invalid credentials, show quick account creator
+        if (result.message.includes('Invalid email or password')) {
+          setError(result.message);
+          setShowQuickCreator(true);
+        }
       }
     } catch (err: any) {
+      console.error('Login error:', err);
       setError(err.message || 'An error occurred. Please try again later.');
-      console.error(err);
     } finally {
       setIsLoading(false);
     }
@@ -71,7 +103,19 @@ const LoginPage = () => {
             <span>{success}</span>
           </div>
         )}
-        
+
+        {/* Quick Account Creator */}
+        {showQuickCreator && (
+          <QuickAccountCreator
+            email={email}
+            password={password}
+            onSuccess={() => {
+              setShowQuickCreator(false);
+              setSuccess('Account created and signed in successfully!');
+            }}
+          />
+        )}
+
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div>
@@ -196,86 +240,152 @@ const LoginPage = () => {
             <button
               type="button"
               onClick={async () => {
-                setEmail('patient@telemedicine.demo');
-                setPassword('demo123456');
-                // Auto-create demo account if it doesn't exist
+                setIsLoading(true);
+                setError(null);
+                setSuccess(null);
+
                 try {
-                  await signIn({ email: 'patient@telemedicine.demo', password: 'demo123456' });
-                } catch (error) {
-                  // If login fails, create the demo account
-                  try {
-                    await signUp({
+                  // Try to sign in first
+                  const result = await signIn({
+                    email: 'patient@telemedicine.demo',
+                    password: 'demo123456'
+                  });
+
+                  if (result.success) {
+                    setSuccess('Demo Patient logged in successfully!');
+                    console.log('Demo Patient login successful, navigating to dashboard...');
+                    navigate('/dashboard', { replace: true });
+                  } else {
+                    // If login fails, create the demo account (no email verification required)
+                    const createResult = await signUp({
                       email: 'patient@telemedicine.demo',
                       password: 'demo123456',
                       fullName: 'Demo Patient',
-                      role: 'patient',
+                      role: UserRole.PATIENT,
+                      requireEmailConfirmation: false,
                     });
-                  } catch (createError) {
-                    console.log('Demo account creation failed:', createError);
+
+                    if (createResult.success) {
+                      setSuccess('Demo Patient account created! You can now sign in.');
+                      setEmail('patient@telemedicine.demo');
+                      setPassword('demo123456');
+                    } else {
+                      setError('Failed to create demo account. Please try manual login.');
+                    }
                   }
+                } catch (error: any) {
+                  setError('Demo login failed: ' + (error.message || 'Unknown error'));
+                } finally {
+                  setIsLoading(false);
                 }
               }}
-              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+              disabled={isLoading}
+              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
             >
-              Patient Demo
+              {isLoading ? 'Connecting...' : 'Patient Demo'}
             </button>
             <button
               type="button"
               onClick={async () => {
-                setEmail('doctor@telemedicine.demo');
-                setPassword('demo123456');
-                // Auto-create demo account if it doesn't exist
+                setIsLoading(true);
+                setError(null);
+                setSuccess(null);
+
                 try {
-                  await signIn({ email: 'doctor@telemedicine.demo', password: 'demo123456' });
-                } catch (error) {
-                  // If login fails, create the demo account
-                  try {
-                    await signUp({
+                  // Try to sign in first
+                  const result = await signIn({
+                    email: 'doctor@telemedicine.demo',
+                    password: 'demo123456'
+                  });
+
+                  if (result.success) {
+                    setSuccess('Demo Doctor logged in successfully!');
+                    console.log('Demo Doctor login successful, navigating to dashboard...');
+                    navigate('/dashboard', { replace: true });
+                  } else {
+                    // If login fails, create the demo account (no email verification required)
+                    const createResult = await signUp({
                       email: 'doctor@telemedicine.demo',
                       password: 'demo123456',
                       fullName: 'Dr. Demo Doctor',
-                      role: 'doctor',
+                      role: UserRole.DOCTOR,
                       specialization: 'General Medicine',
                       medicalLicense: 'DEMO123456',
+                      requireEmailConfirmation: false,
                     });
-                  } catch (createError) {
-                    console.log('Demo account creation failed:', createError);
+
+                    if (createResult.success) {
+                      setSuccess('Demo Doctor account created! You can now sign in.');
+                      setEmail('doctor@telemedicine.demo');
+                      setPassword('demo123456');
+                    } else {
+                      setError('Failed to create demo account. Please try manual login.');
+                    }
                   }
+                } catch (error: any) {
+                  setError('Demo login failed: ' + (error.message || 'Unknown error'));
+                } finally {
+                  setIsLoading(false);
                 }
               }}
-              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+              disabled={isLoading}
+              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
             >
-              Doctor Demo
+              {isLoading ? 'Connecting...' : 'Doctor Demo'}
             </button>
             <button
               type="button"
               onClick={async () => {
-                setEmail('admin@telemedicine.demo');
-                setPassword('demo123456');
-                // Auto-create demo account if it doesn't exist
+                setIsLoading(true);
+                setError(null);
+                setSuccess(null);
+
                 try {
-                  await signIn({ email: 'admin@telemedicine.demo', password: 'demo123456' });
-                } catch (error) {
-                  // If login fails, create the demo account
-                  try {
-                    await signUp({
+                  // Try to sign in first
+                  const result = await signIn({
+                    email: 'admin@telemedicine.demo',
+                    password: 'demo123456'
+                  });
+
+                  if (result.success) {
+                    setSuccess('Demo Admin logged in successfully!');
+                    console.log('Demo Admin login successful, navigating to dashboard...');
+                    navigate('/dashboard', { replace: true });
+                  } else {
+                    // If login fails, create the demo account (no email verification required)
+                    const createResult = await signUp({
                       email: 'admin@telemedicine.demo',
                       password: 'demo123456',
                       fullName: 'Demo Administrator',
-                      role: 'admin',
+                      role: UserRole.ADMIN,
+                      requireEmailConfirmation: false,
                     });
-                  } catch (createError) {
-                    console.log('Demo account creation failed:', createError);
+
+                    if (createResult.success) {
+                      setSuccess('Demo Admin account created! You can now sign in.');
+                      setEmail('admin@telemedicine.demo');
+                      setPassword('demo123456');
+                    } else {
+                      setError('Failed to create demo account. Please try manual login.');
+                    }
                   }
+                } catch (error: any) {
+                  setError('Demo login failed: ' + (error.message || 'Unknown error'));
+                } finally {
+                  setIsLoading(false);
                 }
               }}
-              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+              disabled={isLoading}
+              className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
             >
-              Admin Demo
+              {isLoading ? 'Connecting...' : 'Admin Demo'}
             </button>
           </div>
         </div>
       </div>
+
+      {/* Development Auth Helper */}
+      <DevelopmentAuthHelper />
     </div>
   );
 };

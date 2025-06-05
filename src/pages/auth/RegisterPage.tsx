@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, CheckCircle, AlertCircle, User, Mail, Lock } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useSupabaseAuth } from '../../hooks/useSupabaseAuth';
+import { useAuthRedirect } from '../../hooks/useAuthRedirect';
 import { UserRole } from '../../config/supabase';
 
 const RegisterPage = () => {
@@ -19,7 +20,13 @@ const RegisterPage = () => {
 
   const { register } = useAuth();
   const { signUp } = useSupabaseAuth();
+  const { shouldShowAuthPages } = useAuthRedirect();
   const navigate = useNavigate();
+
+  // Don't render if user should be redirected
+  if (!shouldShowAuthPages) {
+    return null;
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,26 +46,26 @@ const RegisterPage = () => {
     setIsLoading(true);
 
     try {
-      // Use the Supabase auth directly for better feedback
+      // Use the Supabase auth directly for better feedback (no email verification required)
       const result = await signUp({
         email,
         password,
         fullName: name,
         role,
+        requireEmailConfirmation: false,
       });
 
       if (result.success) {
-        if (result.needsConfirmation) {
-          setSuccess(
-            `${result.message} Check your email and click the verification link to complete your registration.`
-          );
-        } else {
-          setSuccess(result.message);
-          // Auto-redirect after 3 seconds if no email confirmation needed
-          setTimeout(() => {
-            navigate('/login');
-          }, 3000);
-        }
+        setSuccess(result.message);
+        // Auto-redirect to login page for immediate sign in
+        setTimeout(() => {
+          navigate('/login', {
+            state: {
+              message: 'Registration successful! You can now sign in and access your dashboard.',
+              email: email
+            }
+          });
+        }, 1500);
       } else {
         setError(result.message);
       }
@@ -298,6 +305,8 @@ const RegisterPage = () => {
           </p>
         </div>
       </div>
+
+
     </div>
   );
 };
