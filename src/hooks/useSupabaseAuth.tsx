@@ -1,0 +1,472 @@
+import { useState, useEffect, useCallback } from 'react';
+import { User, Session, AuthError } from '@supabase/supabase-js';
+import { supabase, UserRole, handleSupabaseError, TABLES } from '../config/supabase';
+import { Database } from '../types/database';
+
+type Profile = Database['public']['Tables']['profiles']['Row'];
+
+interface AuthState {
+  user: User | null;
+  profile: Profile | null;
+  session: Session | null;
+  loading: boolean;
+  error: string | null;
+}
+
+interface SignUpData {
+  email: string;
+  password: string;
+  fullName: string;
+  role: UserRole;
+  phone?: string;
+  dateOfBirth?: string;
+  gender?: 'male' | 'female' | 'other';
+  medicalLicense?: string;
+  specialization?: string;
+  department?: string;
+}
+
+interface SignInData {
+  email: string;
+  password: string;
+}
+
+interface UpdateProfileData {
+  full_name?: string;
+  phone?: string;
+  date_of_birth?: string;
+  gender?: 'male' | 'female' | 'other';
+  address?: string;
+  emergency_contact?: any;
+  medical_license?: string;
+  specialization?: string;
+  department?: string;
+  avatar_url?: string;
+}
+
+export const useSupabaseAuth = () => {
+  const [authState, setAuthState] = useState<AuthState>({
+    user: null,
+    profile: null,
+    session: null,
+    loading: true,
+    error: null,
+  });
+
+  // Fetch user profile
+  const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
+    try {
+      const { data, error } = await supabase
+        .from(TABLES.PROFILES)
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching profile:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      return null;
+    }
+  }, []);
+
+  // Initialize auth state
+  useEffect(() => {
+    let mounted = true;
+
+    const initializeAuth = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Error getting session:', error);
+          if (mounted) {
+            setAuthState(prev => ({
+              ...prev,
+              loading: false,
+              error: error.message,
+            }));
+          }
+          return;
+        }
+
+        if (session?.user && mounted) {
+          const profile = await fetchProfile(session.user.id);
+          setAuthState({
+            user: session.user,
+            profile,
+            session,
+            loading: false,
+            error: null,
+          });
+        } else if (mounted) {
+          setAuthState({
+            user: null,
+            profile: null,
+            session: null,
+            loading: false,
+            error: null,
+          });
+        }
+      } catch (error) {
+        console.error('Error initializing auth:', error);
+        if (mounted) {
+          setAuthState(prev => ({
+            ...prev,
+            loading: false,
+            error: 'Failed to initialize authentication',
+          }));
+        }
+      }
+    };
+
+    initializeAuth();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!mounted) return;
+
+        if (event === 'SIGNED_IN' && session?.user) {
+          const profile = await fetchProfile(session.user.id);
+          setAuthState({
+            user: session.user,
+            profile,
+            session,
+            loading: false,
+            error: null,
+          });
+        } else if (event === 'SIGNED_OUT') {
+          setAuthState({
+            user: null,
+            profile: null,
+            session: null,
+            loading: false,
+            error: null,
+          });
+        } else if (event === 'TOKEN_REFRESHED' && session) {
+          setAuthState(prev => ({
+            ...prev,
+            session,
+            user: session.user,
+          }));
+        }
+      }
+    );
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [fetchProfile]);
+
+  // Sign up
+  const signUp = useCallback(async (data: SignUpData): Promise<{ success: boolean; needsConfirmation: boolean; message: string }> => {
+    try {
+      setAuthState(prev => ({ ...prev, loading: true, error: null }));
+
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
+        options: {
+          data: {
+            full_name: data.fullName,
+            role: data.role,
+          },
+          emailRedirectTo: `${window.location.origin}/auth/verify`,
+        },
+      });
+
+      if (authError) {
+        throw authError;
+      }
+
+      if (authData.user) {
+        // Create profile immediately
+        const profileData: Database['public']['Tables']['profiles']['Insert'] = {
+          id: authData.user.id,
+          email: data.email,
+          full_name: data.fullName,
+          role: data.role,
+          phone: data.phone || null,
+          date_of_birth: data.dateOfBirth || null,
+          gender: data.gender || null,
+          medical_license: data.medicalLicense || null,
+          specialization: data.specialization || null,
+          department: data.department || null,
+          is_active: true,
+        };
+
+        const { error: profileError } = await supabase
+          .from(TABLES.PROFILES)
+          .insert(profileData);
+
+        if (profileError) {
+          console.error('Error creating profile:', profileError);
+          // Continue anyway, profile can be created later
+        }
+
+        setAuthState(prev => ({ ...prev, loading: false }));
+
+        // Check if email confirmation is required
+        if (!authData.session && authData.user && !authData.user.email_confirmed_at) {
+          return {
+            success: true,
+            needsConfirmation: true,
+            message: 'Registration successful! Please check your email to confirm your account before signing in.',
+          };
+        } else {
+          return {
+            success: true,
+            needsConfirmation: false,
+            message: 'Registration successful! You can now sign in.',
+          };
+        }
+      }
+
+      setAuthState(prev => ({ ...prev, loading: false }));
+      return {
+        success: false,
+        needsConfirmation: false,
+        message: 'Registration failed. Please try again.',
+      };
+    } catch (error: any) {
+      setAuthState(prev => ({
+        ...prev,
+        loading: false,
+        error: error.message || 'Failed to sign up',
+      }));
+
+      let message = 'Registration failed. Please try again.';
+      if (error.message?.includes('already registered')) {
+        message = 'This email is already registered. Please try signing in instead.';
+      } else if (error.message?.includes('invalid email')) {
+        message = 'Please enter a valid email address.';
+      } else if (error.message?.includes('password')) {
+        message = 'Password must be at least 6 characters long.';
+      }
+
+      return {
+        success: false,
+        needsConfirmation: false,
+        message,
+      };
+    }
+  }, []);
+
+  // Sign in
+  const signIn = useCallback(async (data: SignInData): Promise<{ success: boolean; message: string }> => {
+    try {
+      setAuthState(prev => ({ ...prev, loading: true, error: null }));
+
+      const { data: authData, error } = await supabase.auth.signInWithPassword({
+        email: data.email,
+        password: data.password,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (authData.user && authData.session) {
+        // Check if profile exists, create if it doesn't
+        const profile = await fetchProfile(authData.user.id);
+        if (!profile) {
+          // Create profile if it doesn't exist
+          const profileData: Database['public']['Tables']['profiles']['Insert'] = {
+            id: authData.user.id,
+            email: authData.user.email || data.email,
+            full_name: authData.user.user_metadata?.full_name || 'User',
+            role: authData.user.user_metadata?.role || 'patient',
+            is_active: true,
+          };
+
+          await supabase.from(TABLES.PROFILES).insert(profileData);
+        }
+
+        setAuthState(prev => ({ ...prev, loading: false }));
+        return {
+          success: true,
+          message: 'Successfully signed in!',
+        };
+      }
+
+      setAuthState(prev => ({ ...prev, loading: false }));
+      return {
+        success: false,
+        message: 'Sign in failed. Please try again.',
+      };
+    } catch (error: any) {
+      setAuthState(prev => ({
+        ...prev,
+        loading: false,
+        error: error.message || 'Failed to sign in',
+      }));
+
+      let message = 'Sign in failed. Please check your credentials.';
+      if (error.message?.includes('Invalid login credentials')) {
+        message = 'Invalid email or password. Please try again.';
+      } else if (error.message?.includes('Email not confirmed')) {
+        message = 'Please confirm your email address before signing in.';
+      } else if (error.message?.includes('Too many requests')) {
+        message = 'Too many sign in attempts. Please wait a moment and try again.';
+      }
+
+      return {
+        success: false,
+        message,
+      };
+    }
+  }, [fetchProfile]);
+
+  // Sign out
+  const signOut = useCallback(async (): Promise<void> => {
+    try {
+      setAuthState(prev => ({ ...prev, loading: true, error: null }));
+
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        throw error;
+      }
+
+      // Auth state will be updated by the listener
+    } catch (error: any) {
+      setAuthState(prev => ({
+        ...prev,
+        loading: false,
+        error: error.message || 'Failed to sign out',
+      }));
+      throw error;
+    }
+  }, []);
+
+  // Update profile
+  const updateProfile = useCallback(async (updates: UpdateProfileData): Promise<void> => {
+    try {
+      if (!authState.user) {
+        throw new Error('No authenticated user');
+      }
+
+      setAuthState(prev => ({ ...prev, loading: true, error: null }));
+
+      const { data, error } = await supabase
+        .from(TABLES.PROFILES)
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', authState.user.id)
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      setAuthState(prev => ({
+        ...prev,
+        profile: data,
+        loading: false,
+      }));
+    } catch (error: any) {
+      setAuthState(prev => ({
+        ...prev,
+        loading: false,
+        error: error.message || 'Failed to update profile',
+      }));
+      throw error;
+    }
+  }, [authState.user]);
+
+  // Reset password
+  const resetPassword = useCallback(async (email: string): Promise<void> => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/verify`,
+      });
+
+      if (error) {
+        throw error;
+      }
+    } catch (error: any) {
+      throw new Error(error.message || 'Failed to send reset email');
+    }
+  }, []);
+
+  // Update password
+  const updatePassword = useCallback(async (newPassword: string): Promise<void> => {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (error) {
+        throw error;
+      }
+    } catch (error: any) {
+      throw new Error(error.message || 'Failed to update password');
+    }
+  }, []);
+
+  // Upload avatar
+  const uploadAvatar = useCallback(async (file: File): Promise<string> => {
+    try {
+      if (!authState.user) {
+        throw new Error('No authenticated user');
+      }
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${authState.user.id}/avatar.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, file, { upsert: true });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(fileName);
+
+      // Update profile with new avatar URL
+      await updateProfile({ avatar_url: publicUrl });
+
+      return publicUrl;
+    } catch (error: any) {
+      throw new Error(error.message || 'Failed to upload avatar');
+    }
+  }, [authState.user, updateProfile]);
+
+  // Clear error
+  const clearError = useCallback(() => {
+    setAuthState(prev => ({ ...prev, error: null }));
+  }, []);
+
+  return {
+    // State
+    user: authState.user,
+    profile: authState.profile,
+    session: authState.session,
+    loading: authState.loading,
+    error: authState.error,
+    isAuthenticated: !!authState.user,
+    userRole: authState.profile?.role || null,
+
+    // Actions
+    signUp,
+    signIn,
+    signOut,
+    updateProfile,
+    resetPassword,
+    updatePassword,
+    uploadAvatar,
+    clearError,
+  };
+};

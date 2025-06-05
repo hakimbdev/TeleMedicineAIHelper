@@ -1,0 +1,14 @@
+# Netlify redirects for SPA routing
+# This ensures that all routes are handled by the React app
+
+# Handle email verification redirects from Supabase
+/auth/verify* /auth/verify 200
+/auth/confirm* /auth/confirm 200
+/verify* /verify 200
+
+# Handle password reset redirects
+/reset-password* /reset-password 200
+/auth/reset-password* /auth/reset-password 200
+
+# SPA fallback - must be last
+/* /index.html 200

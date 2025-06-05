@@ -1,0 +1,143 @@
+import React, { createContext, useContext, ReactNode } from 'react';
+import { useSupabaseAuth } from './useSupabaseAuth';
+import { UserRole } from '../config/supabase';
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: 'patient' | 'doctor' | 'admin' | 'nurse';
+  avatar?: string;
+  phone?: string;
+  dateOfBirth?: string;
+  gender?: 'male' | 'female' | 'other';
+  medicalLicense?: string;
+  specialization?: string;
+  department?: string;
+  dateCreated?: string;
+  lastActive?: string;
+}
+
+interface AuthContextType {
+  user: User | null;
+  isAuthenticated: boolean;
+  loading: boolean;
+  error: string | null;
+  login: (email: string, password: string) => Promise<boolean>;
+  register: (name: string, email: string, password: string, role: UserRole, additionalData?: any) => Promise<boolean>;
+  logout: () => Promise<void>;
+  updateProfile: (data: any) => Promise<void>;
+  uploadAvatar: (file: File) => Promise<string>;
+  clearError: () => void;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const {
+    user: supabaseUser,
+    profile,
+    loading,
+    error,
+    signIn,
+    signUp,
+    signOut,
+    updateProfile: updateSupabaseProfile,
+    uploadAvatar,
+    clearError,
+  } = useSupabaseAuth();
+
+  // Transform Supabase user and profile to our User interface
+  const user: User | null = supabaseUser && profile ? {
+    id: supabaseUser.id,
+    name: profile.full_name || 'Unknown User',
+    email: profile.email,
+    role: profile.role,
+    avatar: profile.avatar_url || undefined,
+    phone: profile.phone || undefined,
+    dateOfBirth: profile.date_of_birth || undefined,
+    gender: profile.gender || undefined,
+    medicalLicense: profile.medical_license || undefined,
+    specialization: profile.specialization || undefined,
+    department: profile.department || undefined,
+    dateCreated: profile.created_at,
+    lastActive: profile.updated_at,
+  } : null;
+
+  const login = async (email: string, password: string): Promise<boolean> => {
+    try {
+      const result = await signIn({ email, password });
+      return result.success;
+    } catch (error) {
+      console.error('Login error:', error);
+      return false;
+    }
+  };
+
+  const register = async (
+    name: string,
+    email: string,
+    password: string,
+    role: UserRole,
+    additionalData?: {
+      phone?: string;
+      dateOfBirth?: string;
+      gender?: 'male' | 'female' | 'other';
+      medicalLicense?: string;
+      specialization?: string;
+      department?: string;
+    }
+  ): Promise<boolean> => {
+    try {
+      const result = await signUp({
+        email,
+        password,
+        fullName: name,
+        role,
+        phone: additionalData?.phone,
+        dateOfBirth: additionalData?.dateOfBirth,
+        gender: additionalData?.gender,
+        medicalLicense: additionalData?.medicalLicense,
+        specialization: additionalData?.specialization,
+        department: additionalData?.department,
+      });
+      return result.success;
+    } catch (error) {
+      console.error('Registration error:', error);
+      return false;
+    }
+  };
+
+  const logout = async (): Promise<void> => {
+    await signOut();
+  };
+
+  const updateProfile = async (data: any): Promise<void> => {
+    await updateSupabaseProfile(data);
+  };
+
+  return (
+    <AuthContext.Provider value={{
+      user,
+      isAuthenticated: !!user,
+      loading,
+      error,
+      login,
+      register,
+      logout,
+      updateProfile,
+      uploadAvatar,
+      clearError,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
