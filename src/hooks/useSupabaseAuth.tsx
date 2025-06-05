@@ -80,22 +80,34 @@ export const useSupabaseAuth = () => {
 
     const initializeAuth = async () => {
       try {
+        console.log('🔄 Initializing authentication...');
         const { data: { session }, error } = await supabase.auth.getSession();
-        
+
         if (error) {
-          console.error('Error getting session:', error);
+          console.error('❌ Error getting session:', error);
           if (mounted) {
-            setAuthState(prev => ({
-              ...prev,
+            setAuthState({
+              user: null,
+              profile: null,
+              session: null,
               loading: false,
               error: error.message,
-            }));
+            });
           }
           return;
         }
 
         if (session?.user && mounted) {
-          const profile = await fetchProfile(session.user.id);
+          console.log('✅ Session found, user:', session.user.id);
+          // Load profile in background, don't block authentication
+          let profile = null;
+          try {
+            profile = await fetchProfile(session.user.id);
+            console.log('📋 Profile loaded:', !!profile);
+          } catch (profileError) {
+            console.warn('⚠️ Profile loading failed, continuing without profile:', profileError);
+          }
+
           setAuthState({
             user: session.user,
             profile,
@@ -104,6 +116,7 @@ export const useSupabaseAuth = () => {
             error: null,
           });
         } else if (mounted) {
+          console.log('ℹ️ No session found');
           setAuthState({
             user: null,
             profile: null,
@@ -113,26 +126,47 @@ export const useSupabaseAuth = () => {
           });
         }
       } catch (error) {
-        console.error('Error initializing auth:', error);
+        console.error('❌ Error initializing auth:', error);
         if (mounted) {
-          setAuthState(prev => ({
-            ...prev,
+          setAuthState({
+            user: null,
+            profile: null,
+            session: null,
             loading: false,
             error: 'Failed to initialize authentication',
-          }));
+          });
         }
       }
     };
 
-    initializeAuth();
+    // Add timeout to prevent infinite loading
+    const timeoutId = setTimeout(() => {
+      if (mounted) {
+        console.warn('⏰ Auth initialization timeout, setting loading to false');
+        setAuthState(prev => ({ ...prev, loading: false }));
+      }
+    }, 5000); // 5 second timeout
+
+    initializeAuth().finally(() => {
+      clearTimeout(timeoutId);
+    });
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (!mounted) return;
 
+        console.log('🔄 Auth state change:', event, !!session?.user);
+
         if (event === 'SIGNED_IN' && session?.user) {
-          const profile = await fetchProfile(session.user.id);
+          // Load profile in background, don't block
+          let profile = null;
+          try {
+            profile = await fetchProfile(session.user.id);
+          } catch (error) {
+            console.warn('⚠️ Profile loading failed during sign in:', error);
+          }
+
           setAuthState({
             user: session.user,
             profile,

@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import LandingPage from './pages/LandingPage';
@@ -16,19 +17,42 @@ import NotificationsPage from './pages/notifications/NotificationsPage';
 import ProfilePage from './pages/profile/ProfilePage';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import ProtectedRoute from './components/auth/ProtectedRoute';
+import LoadingFallback from './components/ui/LoadingFallback';
 import { useAuth } from './hooks/useAuth';
 
 function App() {
   const { isAuthenticated, loading, user } = useAuth();
+  const [loadingTimeout, setLoadingTimeout] = useState(false);
+  const [forceLoad, setForceLoad] = useState(false);
   const isAdmin = user?.role === 'admin';
 
-  if (loading) {
+  // Add timeout for loading state to prevent infinite loading
+  useEffect(() => {
+    if (loading) {
+      console.log('🔄 App loading started...');
+      const timeoutId = setTimeout(() => {
+        console.warn('⏰ Loading timeout reached, showing fallback options');
+        setLoadingTimeout(true);
+      }, 8000); // 8 second timeout
+
+      return () => clearTimeout(timeoutId);
+    } else {
+      console.log('✅ App loading completed');
+      setLoadingTimeout(false);
+    }
+  }, [loading]);
+
+  // Show loading fallback with timeout options
+  if (loading && !forceLoad) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-pulse-slow text-primary-500 text-xl font-medium">
-          Loading TeleMed AI...
-        </div>
-      </div>
+      <LoadingFallback
+        message={loadingTimeout ? "Loading is taking longer than expected..." : "Initializing TeleMedicine AI Helper..."}
+        timeout={loadingTimeout}
+        onForceLoad={() => {
+          console.log('🚀 Force loading app...');
+          setForceLoad(true);
+        }}
+      />
     );
   }
 
