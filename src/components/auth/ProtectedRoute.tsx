@@ -12,7 +12,12 @@ const ProtectedRoute = ({
   loading = false,
   redirectPath = '/login'
 }: ProtectedRouteProps) => {
-  console.log('ProtectedRoute check:', { isAuthenticated, loading, redirectPath });
+  console.log('ProtectedRoute check:', {
+    isAuthenticated,
+    loading,
+    redirectPath,
+    timestamp: new Date().toISOString()
+  });
 
   // Show loading spinner while authentication is being checked
   if (loading) {
@@ -21,7 +26,7 @@ const ProtectedRoute = ({
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <Loader className="w-8 h-8 text-blue-500 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">Loading...</p>
+          <p className="text-gray-600">Checking authentication...</p>
         </div>
       </div>
     );
@@ -33,7 +38,7 @@ const ProtectedRoute = ({
     return <Navigate to={redirectPath} replace />;
   }
 
-  console.log('ProtectedRoute: Authenticated, allowing access');
+  console.log('ProtectedRoute: ✅ Authenticated, allowing dashboard access');
   return <Outlet />;
 };
 

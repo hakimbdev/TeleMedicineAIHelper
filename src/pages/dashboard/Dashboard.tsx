@@ -15,6 +15,7 @@ import AppointmentCalendar from './components/AppointmentCalendar';
 import AdminStats from './components/AdminStats';
 import AuthStatus from '../../components/auth/AuthStatus';
 import OptionalEmailVerificationBanner from '../../components/auth/OptionalEmailVerificationBanner';
+import SimpleAuthTest from '../../components/debug/SimpleAuthTest';
 import { useSupabaseAuth } from '../../hooks/useSupabaseAuth';
 
 // Mock data
@@ -93,6 +94,9 @@ const Dashboard = () => {
           Here's an overview of your healthcare dashboard
         </p>
       </div>
+
+      {/* Simple Authentication Test - For Troubleshooting */}
+      <SimpleAuthTest />
 
       {/* Optional Email Verification Banner */}
       {showEmailBanner && supabaseUser && !supabaseUser.email_confirmed_at && (

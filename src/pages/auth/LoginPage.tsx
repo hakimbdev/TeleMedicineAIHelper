@@ -53,9 +53,9 @@ const LoginPage = () => {
 
       if (result.success) {
         setSuccess(result.message);
-        console.log('Login successful, navigating to dashboard...');
+        console.log('✅ Login successful, navigating to dashboard...');
 
-        // Immediate navigation to dashboard
+        // Force immediate navigation - auth state should be updated by now
         navigate('/dashboard', { replace: true });
       } else {
         setError(result.message);
@@ -253,7 +253,7 @@ const LoginPage = () => {
 
                   if (result.success) {
                     setSuccess('Demo Patient logged in successfully!');
-                    console.log('Demo Patient login successful, navigating to dashboard...');
+                    console.log('✅ Demo Patient login successful, navigating to dashboard...');
                     navigate('/dashboard', { replace: true });
                   } else {
                     // If login fails, create the demo account (no email verification required)
@@ -300,7 +300,7 @@ const LoginPage = () => {
 
                   if (result.success) {
                     setSuccess('Demo Doctor logged in successfully!');
-                    console.log('Demo Doctor login successful, navigating to dashboard...');
+                    console.log('✅ Demo Doctor login successful, navigating to dashboard...');
                     navigate('/dashboard', { replace: true });
                   } else {
                     // If login fails, create the demo account (no email verification required)
@@ -349,7 +349,7 @@ const LoginPage = () => {
 
                   if (result.success) {
                     setSuccess('Demo Admin logged in successfully!');
-                    console.log('Demo Admin login successful, navigating to dashboard...');
+                    console.log('✅ Demo Admin login successful, navigating to dashboard...');
                     navigate('/dashboard', { replace: true });
                   } else {
                     // If login fails, create the demo account (no email verification required)

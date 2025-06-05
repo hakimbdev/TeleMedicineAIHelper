@@ -335,9 +335,10 @@ export const useSupabaseAuth = () => {
         console.log('Sign in successful, user:', authData.user);
 
         // Check if profile exists, create if it doesn't
+        let userProfile = null;
         try {
-          const profile = await fetchProfile(authData.user.id);
-          if (!profile) {
+          userProfile = await fetchProfile(authData.user.id);
+          if (!userProfile) {
             console.log('Creating profile for user:', authData.user.id);
             // Create profile if it doesn't exist
             const profileData: Database['public']['Tables']['profiles']['Insert'] = {
@@ -348,41 +349,42 @@ export const useSupabaseAuth = () => {
               is_active: true,
             };
 
-            const { error: profileError } = await supabase.from(TABLES.PROFILES).insert(profileData);
+            const { data: newProfile, error: profileError } = await supabase
+              .from(TABLES.PROFILES)
+              .insert(profileData)
+              .select()
+              .single();
+
             if (profileError) {
               console.error('Profile creation error:', profileError);
             } else {
-              console.log('Profile created successfully');
+              console.log('Profile created successfully:', newProfile);
+              userProfile = newProfile;
             }
           } else {
-            console.log('Profile exists:', profile);
+            console.log('Profile exists:', userProfile);
           }
         } catch (profileError) {
           console.error('Profile check/creation error:', profileError);
           // Continue anyway, profile issues shouldn't block login
         }
 
-        // Update authentication state with user and session
+        // Update authentication state with user, session, and profile
         setAuthState(prev => ({
           ...prev,
           user: authData.user,
           session: authData.session,
+          profile: userProfile,
           loading: false,
         }));
 
-        console.log('Authentication state updated:', {
-          user: authData.user,
+        console.log('✅ Authentication state updated successfully:', {
+          userId: authData.user.id,
+          userEmail: authData.user.email,
           session: !!authData.session,
-          isAuthenticated: !!authData.user
+          profile: !!userProfile,
+          isAuthenticated: true
         });
-
-        // Force a re-check of the session to ensure state is properly updated
-        setTimeout(async () => {
-          const { data: { session: currentSession } } = await supabase.auth.getSession();
-          if (currentSession?.user) {
-            console.log('Session verified after sign in:', !!currentSession);
-          }
-        }, 100);
 
         // Email verification is optional - users can always access the dashboard
         return {

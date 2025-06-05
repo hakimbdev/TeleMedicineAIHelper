@@ -47,22 +47,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     clearError,
   } = useSupabaseAuth();
 
-  // Transform Supabase user and profile to our User interface
-  const user: User | null = supabaseUser && profile ? {
+  // Simplified authentication - only requires Supabase user session
+  const user: User | null = supabaseUser ? {
     id: supabaseUser.id,
-    name: profile.full_name || 'Unknown User',
-    email: profile.email,
-    role: profile.role,
-    avatar: profile.avatar_url || undefined,
-    phone: profile.phone || undefined,
-    dateOfBirth: profile.date_of_birth || undefined,
-    gender: profile.gender || undefined,
-    medicalLicense: profile.medical_license || undefined,
-    specialization: profile.specialization || undefined,
-    department: profile.department || undefined,
-    dateCreated: profile.created_at,
-    lastActive: profile.updated_at,
+    name: profile?.full_name || supabaseUser.user_metadata?.full_name || supabaseUser.email?.split('@')[0] || 'User',
+    email: profile?.email || supabaseUser.email || '',
+    role: (profile?.role || supabaseUser.user_metadata?.role || 'patient') as UserRole,
+    avatar: profile?.avatar_url || undefined,
+    phone: profile?.phone || undefined,
+    dateOfBirth: profile?.date_of_birth || undefined,
+    gender: profile?.gender || undefined,
+    medicalLicense: profile?.medical_license || undefined,
+    specialization: profile?.specialization || undefined,
+    department: profile?.department || undefined,
+    dateCreated: profile?.created_at || supabaseUser.created_at,
+    lastActive: profile?.updated_at || undefined,
   } : null;
+
+  // Authentication is true if we have a Supabase user, regardless of profile status
+  const isAuthenticated = !!supabaseUser && !!supabaseUser.id;
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
@@ -118,17 +121,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Debug logging for authentication state
   console.log('useAuth state:', {
+    supabaseUser: !!supabaseUser,
+    supabaseUserId: supabaseUser?.id,
     user: !!user,
-    isAuthenticated: !!user,
+    isAuthenticated,
     loading,
     error,
-    userRole: user?.role
+    userRole: user?.role,
+    profileLoaded: !!profile
   });
 
   return (
     <AuthContext.Provider value={{
       user,
-      isAuthenticated: !!user,
+      isAuthenticated,
       loading,
       error,
       login,
